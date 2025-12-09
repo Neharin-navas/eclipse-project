@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
@@ -15,7 +14,6 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -23,11 +21,12 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Updated HR Dashboard with reliable layout:
- * - clear placement of controls (post form on top, table + buttons below)
- * - buttons visible and accessible
- * - hiding ID column (but keep value accessible)
- * - responsive split pane and min sizes so nothing gets clipped
+ * HR Dashboard (updated)
+ * - split is a class field
+ * - description area slightly smaller (balanced)
+ * - bottom jobs panel has a minimum size to avoid collapse
+ * - divider location is set after the frame becomes visible
+ * - ADDED: Delete Job button functionality
  */
 @Component
 public class HRDashboardFrame extends JFrame {
@@ -46,9 +45,12 @@ public class HRDashboardFrame extends JFrame {
     @Autowired private UserService userService;
     @Lazy @Autowired private LoginFrame loginFrame;
 
+    // make split a field so we can adjust divider after showing
+    private JSplitPane split;
+
     // form components
     private final JTextField titleField = new JTextField();
-    private final JTextArea descriptionArea = new JTextArea(6, 40);
+    private final JTextArea descriptionArea = new JTextArea(8, 60); 
     private final JButton postJobButton = new JButton("Post Job");
 
     // jobs table and controls
@@ -56,6 +58,7 @@ public class HRDashboardFrame extends JFrame {
     private JTable postedJobsTable;
     private final JButton viewApplicantsButton = new JButton("View Applicants");
     private final JButton refreshJobsButton = new JButton("Refresh Jobs");
+    private final JButton deleteJobButton = new JButton("Delete Job"); // <-- ADDED BUTTON FIELD
     private final JButton logoutButton = new JButton("Logout");
 
     private final JLabel headerLabel = new JLabel("", SwingConstants.CENTER);
@@ -63,9 +66,9 @@ public class HRDashboardFrame extends JFrame {
     public HRDashboardFrame() {
         super("HR Dashboard");
         setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
-        setSize(980, 700);
-        setMinimumSize(new Dimension(880, 600));
-        setLocationRelativeTo(null);
+        setSize(1000, 720);
+        setMinimumSize(new Dimension(900, 620));
+        setLocationRelativeTo(null); // center
         setLayout(new BorderLayout());
 
         // gradient background
@@ -100,16 +103,16 @@ public class HRDashboardFrame extends JFrame {
         };
         card.setOpaque(false);
         card.setBorder(new EmptyBorder(18, 18, 18, 18));
-        card.setPreferredSize(new Dimension(920, 620));
+        card.setPreferredSize(new Dimension(940, 680));
 
         // header
         headerLabel.setFont(HEADER_FONT);
         headerLabel.setForeground(TEXT_COLOR);
         card.add(headerLabel, BorderLayout.NORTH);
 
-        // Split pane: top = posting form, bottom = job list + controls
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        split.setResizeWeight(0.35);
+        // create split as a field
+        split = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        split.setResizeWeight(0.38);           
         split.setDividerSize(8);
         split.setOneTouchExpandable(false);
         split.setContinuousLayout(true);
@@ -119,12 +122,18 @@ public class HRDashboardFrame extends JFrame {
         // Jobs area (bottom)
         JPanel jobsPanel = buildJobsListPanel();
 
+        // ensure jobs panel has a reasonable minimum so it doesn't collapse
+        jobsPanel.setMinimumSize(new Dimension(600, 200));
+
         split.setTopComponent(postingPanel);
         split.setBottomComponent(jobsPanel);
 
+        // initial divider location (will be corrected after visible)
+        split.setDividerLocation(320);
+
         card.add(split, BorderLayout.CENTER);
 
-        // Bottom logout row
+        // Bottom logout row (outside split so it remains visible)
         JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         bottomRow.setOpaque(false);
         styleDangerButton(logoutButton);
@@ -138,13 +147,8 @@ public class HRDashboardFrame extends JFrame {
         postJobButton.addActionListener(e -> postJob());
         refreshJobsButton.addActionListener(e -> loadPostedJobs());
         viewApplicantsButton.addActionListener(e -> viewApplicants());
+        deleteJobButton.addActionListener(e -> deleteJob()); // <-- ADDED DELETE LISTENER
         logoutButton.addActionListener(e -> logout());
-
-        // Double-click row to view applicants
-        // (prefer double-click because View Applicants button is available too)
-        // Ensure selection model single selection
-        // Add after table creation in buildJobsListPanel (so postedJobsTable exists)
-        // Will be added there.
 
         setIconImage(createDummyIcon());
     }
@@ -160,7 +164,7 @@ public class HRDashboardFrame extends JFrame {
         JLabel titleLbl = new JLabel("Job Title:");
         titleLbl.setFont(LABEL_FONT);
         titleLbl.setForeground(TEXT_COLOR);
-        titleField.setPreferredSize(new Dimension(620, 36));
+        titleField.setPreferredSize(new Dimension(720, 36));
         titleField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
 
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
@@ -172,17 +176,25 @@ public class HRDashboardFrame extends JFrame {
         JLabel descLbl = new JLabel("Description:");
         descLbl.setFont(LABEL_FONT);
         descLbl.setForeground(TEXT_COLOR);
+
         descriptionArea.setLineWrap(true);
         descriptionArea.setWrapStyleWord(true);
-        descriptionArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        descriptionArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        descriptionArea.setRows(8); 
+
+        // Put text area inside a JScrollPane and set preferred & minimum sizes
         JScrollPane descScroll = new JScrollPane(descriptionArea,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        descScroll.setPreferredSize(new Dimension(620, 140));
+        descScroll.setPreferredSize(new Dimension(720, 180)); 
+        descScroll.setMinimumSize(new Dimension(600, 140));   
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.anchor = GridBagConstraints.NORTHWEST; gbc.weighty = 0;
+        gbc.gridx = 0; gbc.gridy = 1; gbc.anchor = GridBagConstraints.NORTHWEST; gbc.weightx = 0; gbc.weighty = 0;
         wrapper.add(descLbl, gbc);
-        gbc.gridx = 1; gbc.gridy = 1; gbc.weightx = 1; gbc.weighty = 1;
+
+        // Allow the description scroll pane to grow vertically but stay balanced
+        gbc.gridx = 1; gbc.gridy = 1; gbc.weightx = 1.0; gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.BOTH; 
         wrapper.add(descScroll, gbc);
 
         // Post button aligned right
@@ -191,7 +203,7 @@ public class HRDashboardFrame extends JFrame {
         stylePrimaryButton(postJobButton);
         btnRow.add(postJobButton);
 
-        gbc.gridx = 1; gbc.gridy = 2; gbc.weighty = 0; gbc.anchor = GridBagConstraints.EAST;
+        gbc.gridx = 1; gbc.gridy = 2; gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.EAST;
         wrapper.add(btnRow, gbc);
 
         return wrapper;
@@ -204,10 +216,14 @@ public class HRDashboardFrame extends JFrame {
         // Buttons panel at top of jobs list so they are always visible
         JPanel topButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 6));
         topButtons.setOpaque(false);
+        
         stylePrimaryButton(viewApplicantsButton);
         styleSecondaryButton(refreshJobsButton);
+        styleDangerButton(deleteJobButton); // <-- STYLING DELETE BUTTON
+        
         topButtons.add(viewApplicantsButton);
         topButtons.add(refreshJobsButton);
+        topButtons.add(deleteJobButton); // <-- ADDING DELETE BUTTON
 
         // Table
         tableModel = new DefaultTableModel(new Object[]{"ID","Title","ApplicantsCount","DatePosted"}, 0) {
@@ -219,10 +235,10 @@ public class HRDashboardFrame extends JFrame {
         postedJobsTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
 
         // columns widths to ensure the important columns visible
-        postedJobsTable.getColumnModel().getColumn(0).setPreferredWidth(50);  // ID (we'll hide later)
-        postedJobsTable.getColumnModel().getColumn(1).setPreferredWidth(420); // Title
-        postedJobsTable.getColumnModel().getColumn(2).setPreferredWidth(140); // ApplicantsCount
-        postedJobsTable.getColumnModel().getColumn(3).setPreferredWidth(120); // Date
+        postedJobsTable.getColumnModel().getColumn(0).setPreferredWidth(50); 
+        postedJobsTable.getColumnModel().getColumn(1).setPreferredWidth(420); 
+        postedJobsTable.getColumnModel().getColumn(2).setPreferredWidth(140); 
+        postedJobsTable.getColumnModel().getColumn(3).setPreferredWidth(120); 
 
         postedJobsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
@@ -251,8 +267,15 @@ public class HRDashboardFrame extends JFrame {
             headerLabel.setText("Welcome back, HR " + userService.getLoggedInUser().getUsername() + "!");
             loadPostedJobs();
             setVisible(true);
+
+            // FIX: Ensure divider is placed after the frame is visible and measured
+            SwingUtilities.invokeLater(() -> {
+                int divider = (int) (this.getHeight() * 0.38);
+                divider = Math.max(divider, 220);
+                divider = Math.min(divider, this.getHeight() - 250);
+                split.setDividerLocation(divider);
+            });
         } else {
-            // fallback
             loginFrame.setVisible(true);
         }
     }
@@ -278,10 +301,9 @@ public class HRDashboardFrame extends JFrame {
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
             if (list != null) {
                 for (JobPosting j : list) {
-                    // compute applicant count (if your entity stores differently adjust here)
                     int count = 0;
                     try {
-                        String applicants = j.getApplicants(); // may be null or comma-separated
+                        String applicants = j.getApplicants(); 
                         if (applicants != null && !applicants.isBlank()) {
                             count = (int) Arrays.stream(applicants.split(",")).filter(s -> !s.trim().isEmpty()).count();
                         }
@@ -312,7 +334,7 @@ public class HRDashboardFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Select a job first.", "No selection", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        // get id from model (column 0)
+        
         Object idObj = tableModel.getValueAt(sel, 0);
         Long jobId = null;
         if (idObj instanceof Number) jobId = ((Number) idObj).longValue();
@@ -343,9 +365,37 @@ public class HRDashboardFrame extends JFrame {
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         JScrollPane sp = new JScrollPane(area);
-        sp.setPreferredSize(new Dimension(420, 260));
+        sp.setPreferredSize(new Dimension(520, 300));
         JOptionPane.showMessageDialog(this, sp, "Applicants for: " + job.getTitle(), JOptionPane.INFORMATION_MESSAGE);
     }
+    
+    // --- NEW METHOD: Deletes the selected job ---
+    private void deleteJob() {
+        int selectedRow = postedJobsTable.getSelectedRow();
+        if (selectedRow == -1) {
+            JOptionPane.showMessageDialog(this, "Please select a job to delete.", "Selection Error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this, 
+                                    "Are you sure you want to delete this job posting?", 
+                                    "Confirm Deletion", 
+                                    JOptionPane.YES_NO_OPTION);
+
+        if (confirm == JOptionPane.YES_OPTION) {
+            Object idObj = tableModel.getValueAt(selectedRow, 0);
+            Long jobId = null;
+            if (idObj instanceof Number) jobId = ((Number) idObj).longValue();
+            
+            if (jobId != null && jobService.deleteJob(jobId)) {
+                JOptionPane.showMessageDialog(this, "Job deleted successfully.");
+                loadPostedJobs(); // Refresh the table after deletion
+            } else {
+                JOptionPane.showMessageDialog(this, "Deletion failed. You may not have permission or the job doesn't exist.", "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
 
     private void logout() {
         userService.logout();
@@ -353,7 +403,7 @@ public class HRDashboardFrame extends JFrame {
         loginFrame.setVisible(true);
     }
 
-    // ---------- Styling helpers ----------
+    // ---------- Styling helpers (unchanged) ----------
 
     private void stylePrimaryButton(JButton btn) {
         btn.setPreferredSize(BUTTON_SIZE);
@@ -363,9 +413,9 @@ public class HRDashboardFrame extends JFrame {
         btn.setFocusPainted(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btn.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        btn.addMouseListener(new MouseAdapter() {
-            @Override public void mouseEntered(MouseEvent e) { btn.setBackground(PRIMARY_BUTTON_COLOR.darker()); }
-            @Override public void mouseExited(MouseEvent e) { btn.setBackground(PRIMARY_BUTTON_COLOR); }
+        btn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) { btn.setBackground(PRIMARY_BUTTON_COLOR.darker()); }
+            @Override public void mouseExited(java.awt.event.MouseEvent e) { btn.setBackground(PRIMARY_BUTTON_COLOR); }
         });
     }
 
@@ -377,9 +427,9 @@ public class HRDashboardFrame extends JFrame {
         btn.setBorder(BorderFactory.createLineBorder(new Color(220,220,225)));
         btn.setFocusPainted(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.addMouseListener(new MouseAdapter() {
-            @Override public void mouseEntered(MouseEvent e) { btn.setBackground(new Color(235,235,240)); }
-            @Override public void mouseExited(MouseEvent e) { btn.setBackground(new Color(245,245,247)); }
+        btn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) { btn.setBackground(new Color(235,235,240)); }
+            @Override public void mouseExited(java.awt.event.MouseEvent e) { btn.setBackground(new Color(245,245,247)); }
         });
     }
 
@@ -390,9 +440,9 @@ public class HRDashboardFrame extends JFrame {
         btn.setFont(BUTTON_FONT);
         btn.setFocusPainted(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.addMouseListener(new MouseAdapter() {
-            @Override public void mouseEntered(MouseEvent e) { btn.setBackground(DANGER_BUTTON_COLOR.darker()); }
-            @Override public void mouseExited(MouseEvent e) { btn.setBackground(DANGER_BUTTON_COLOR); }
+        btn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) { btn.setBackground(DANGER_BUTTON_COLOR.darker()); }
+            @Override public void mouseExited(java.awt.event.MouseEvent e) { btn.setBackground(DANGER_BUTTON_COLOR); }
         });
     }
 

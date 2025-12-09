@@ -93,4 +93,24 @@ public class JobService {
         jobRepository.save(job);
         return true;
     }
+     
+    public boolean deleteJob(Long jobId) {
+        User user = userService.getLoggedInUser();
+        
+        if (user == null || !user.getRole().equals("HR")) {
+            return false; // Not authorized
+        }
+        
+        Optional<JobPosting> jobOpt = jobRepository.findById(jobId);
+        
+        if (jobOpt.isPresent()) {
+            JobPosting job = jobOpt.get();
+            // Check if the currently logged-in HR is the one who posted the job
+            if (job.getPostedByHrUsername().equals(user.getUsername())) {
+                jobRepository.delete(job);
+                return true;
+            }
+        }
+        return false;
+    }
 }
